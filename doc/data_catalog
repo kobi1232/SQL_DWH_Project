@@ -1,10 +1,3 @@
-Perfect — a **Data Catalog** is exactly what your GitHub project needs now 🎯
-
-Here’s a complete **Gold Layer Data Catalog** written in the same style as your inspiration but adapted to your Netflix project.
-It’s ready to be added as a Markdown file (`/docs/data_catalog_gold.md`) or appended under a “📘 Data Catalog” section in your README.
-
----
-
 # 📘 Data Catalog – Gold Layer
 
 ## 🧭 Overview
@@ -126,8 +119,4 @@ Provides aggregated content-level metrics to measure popularity, engagement, and
 * `COALESCE` and `NULLIF` are applied throughout to prevent division errors and ensure complete datasets.
 * The Gold Layer is **read-only** — updated automatically after Silver ETL completion.
 
----
-
-Would you like me to now draft a **Silver Layer Data Catalog** in the same structured format (for completeness)?
-It would describe your six silver tables (`ntx_users_info`, `ntx_movies_info`, etc.) — great addition for a professional GitHub project.
 

@@ -1,57 +1,208 @@
-# Maven Sales Data Warehouse
+# Netflix User Behavior Data Warehouse
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![SQL](https://img.shields.io/badge/SQL-Query%20Optimization-blue)](https://www.postgresql.org/)
+[![SQL Server](https://img.shields.io/badge/SQL-Server-blue)](https://learn.microsoft.com/en-us/sql/sql-server/)
 [![Medallion Architecture](https://img.shields.io/badge/Architecture-Medallion-green)](https://www.databricks.com/glossary/medallion-architecture)
-
-## Overview
-
-This repository contains the implementation of a comprehensive SQL-based data warehouse for the **Maven Sales Challenge**. As a BI Developer at MavenTech—a company specializing in selling computer hardware to large businesses—you've been tasked with transforming raw CRM sales data into actionable insights. MavenTech has adopted a new CRM system to track B2B sales opportunities but lacks external visibility into the data. This project addresses that gap by building a robust data warehouse that supports the creation of an interactive dashboard for sales managers to monitor their team's quarterly performance.
-
-The warehouse enables data-driven decision-making by organizing and aggregating sales data across accounts, products, sales teams, and opportunities, providing clear visibility into key metrics like opportunity pipelines, win rates, and quarterly revenue trends.
-
-## Objectives
-
-### Main Objective
-Develop a scalable SQL data warehouse to ingest, clean, and aggregate CRM sales data, ultimately powering an interactive dashboard for quarterly sales performance tracking. This empowers sales managers to:
-- Visualize team performance metrics (e.g., opportunities closed, revenue generated).
-- Identify trends in B2B hardware sales to large enterprises.
-- Make informed decisions to drive revenue growth.
-
-### Key Requirements
-- **Data Ingestion**: Load raw B2B sales opportunity data from the CRM database, including details on accounts (e.g., company size, industry), products (e.g., hardware types, pricing), sales teams (e.g., reps, territories), and opportunities (e.g., stage, value, close date).
-- **Data Quality**: Ensure data is cleaned, validated, and transformed to handle inconsistencies, duplicates, and missing values.
-- **Performance Optimization**: Design efficient schemas and queries to support real-time or near-real-time dashboard updates for quarterly reporting.
-- **Scalability**: Use a layered architecture to accommodate growing datasets as MavenTech expands.
-- **Security & Compliance**: Anonymize sensitive account data and ensure queries adhere to B2B privacy standards.
-- **Dashboard Integration**: Structure aggregated data to feed into visualization tools (e.g., Tableau, Power BI) for interactive quarterly reports.
-
-## Dataset
-
-The dataset comprises B2B sales opportunities from a fictitious CRM database for computer hardware sales. Key tables/entities include:
-- **Accounts**: Customer profiles (e.g., company name, industry, revenue).
-- **Products**: Hardware catalog (e.g., servers, laptops, pricing tiers).
-- **Sales Teams**: Rep details (e.g., team member ID, region, manager).
-- **Opportunities**: Sales pipeline data (e.g., opportunity ID, stage, amount, expected close date, outcome).
-
-Sample data volume: ~10,000 opportunities spanning multiple quarters, simulating real-world CRM exports in CSV or SQL dump format.
-
-## Technologies & Tools
-
-- **Primary Language**: SQL (dialect-agnostic where possible; tested with PostgreSQL/MySQL).
-- **Schema Design**: DDL scripts for tables, indexes, and views.
-- **Data Manipulation**: DML for ETL processes (Extract, Transform, Load).
-- **Query Optimization**: Indexing, partitioning, and EXPLAIN ANALYZE for performance tuning.
-- **Environment**: Local development with Dockerized databases; compatible with cloud warehouses like Snowflake or BigQuery.
-- **Version Control**: Git for tracking schema changes and scripts.
-- **Documentation**: SQL comments and this README for reproducibility.
-
-No external dependencies beyond standard SQL; scripts are self-contained.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+[![Data Source](https://img.shields.io/badge/Dataset-Kaggle-red)](https://www.kaggle.com/datasets/sayeeduddin/netflix-2025user-behavior-dataset-210k-records)
 
 ---
 
-*Project started: October 2025. Last updated: October 17, 2025.*
+## 🎯 Overview
+
+This repository contains a complete **SQL-based Data Warehouse project** designed to model, transform, and analyze **Netflix user behavior** data.
+The goal is to simulate a real-world analytical pipeline — from **raw behavioral logs (Bronze)** to **cleaned Silver data**, and finally **business-ready Gold analytical views**.
+
+The project leverages the **Medallion Architecture** to create a clear, layered flow:
+
+* **Bronze Layer** → raw ingestion of user activity logs.
+* **Silver Layer** → data cleaning, deduplication, and type enforcement.
+* **Gold Layer** → analytical views and KPIs used for BI dashboards and ML models.
+
+This data warehouse helps uncover insights such as:
+
+* Which users are most engaged.
+* Which movies perform best across genres.
+* How engagement evolves daily across different user segments.
+
+---
+
+## 🧠 Business Objective
+
+Netflix relies heavily on understanding **user engagement patterns** to personalize recommendations and improve retention.
+This project builds a **modular SQL data warehouse** that allows analysts to explore:
+
+* Viewing trends and engagement levels.
+* Correlation between reviews, searches, and watch time.
+* Content performance across ratings, watch hours, and recommendation clicks.
+
+---
+
+## 📦 Dataset
+
+**Source:** [Netflix 2025 User Behavior Dataset (Kaggle)](https://www.kaggle.com/datasets/sayeeduddin/netflix-2025user-behavior-dataset-210k-records)
+
+**Files Included:**
+
+* `users_info.csv` — basic user demographics, subscription type, and spend.
+* `movies_info.csv` — content metadata (genre, type, year, IMDb rating).
+* `watch_history.csv` — watch durations and timestamps.
+* `reviews.csv` — user ratings and sentiment.
+* `search_logs.csv` — keyword search activity.
+* `recommendation_logs.csv` — recommendations shown vs. clicked.
+
+**Volume:** ~210,000 records across six entities
+**Format:** CSV (structured, relational)
+
+---
+
+## 🧱 Architecture
+
+**Medallion Structure**
+
+```
+Bronze (Raw)  →  Silver (Cleaned & Typed)  →  Gold (Aggregated & Analytical)
+```
+
+### 🔹 Bronze Layer
+
+* Stores unprocessed CSVs imported from the Kaggle dataset.
+* Preserves all raw data for traceability.
+
+### 🔸 Silver Layer
+
+* Cleans duplicates and invalid entries.
+* Enforces proper datatypes (`DATE`, `INT`, `DECIMAL`).
+* Adds audit columns (`dwh_create_date`).
+
+**ETL Managed by:**
+`silver.load_silver_unified` procedure — transforms and loads 6 silver tables:
+
+```
+ntx_users_info
+ntx_movies_info
+ntx_reviews
+ntx_search_logs
+ntx_watch_history
+ntx_recommendation_logs
+```
+
+### 🟡 Gold Layer
+
+* Contains **3 business views** built for analytics and BI dashboards.
+
+#### 1. `gold.user_profile`
+
+Aggregates user-level KPIs:
+
+* Lifetime searches, total reviews, average rating, total watch hours.
+* Adds weighted **Engagement Score (0–100)** and **Subscription Tenure**.
+
+#### 2. `gold.user_engagement`
+
+Tracks **daily activity per user**, combining watch, review, search, and recommendation data.
+Includes normalized **Daily Engagement Score** and an activity category (`High`, `Medium`, `Low`).
+
+#### 3. `gold.content_performance`
+
+Ranks content (movies/shows) by overall engagement:
+
+* Combines watch hours, reviews, ratings, sentiment, and clicks.
+* Calculates **Content Engagement Index (0–100)** and a popularity rank.
+
+---
+
+## ⚙️ Technologies & Tools
+
+| Category                 | Tool / Technology           |
+| ------------------------ | --------------------------- |
+| Database Engine          | Microsoft SQL Server (SSMS) |
+| Query Language           | T-SQL                       |
+| ETL                      | Stored Procedures + DML     |
+| Modeling Approach        | Medallion Architecture      |
+| Version Control          | Git / GitHub                |
+| Visualization (Optional) | Power BI / Tableau          |
+| Dataset Source           | Kaggle (CSV import)         |
+
+---
+
+## 🧪 Validation & Testing
+
+After deploying the warehouse:
+
+1. Run `silver_full_load.sql` → populates the silver schema.
+2. Execute `gold_ddl.sql` → builds gold analytical views.
+3. Execute `gold_validation.sql` → validates metrics, nulls, and normalization.
+
+Key tests:
+
+* Engagement scores range between 0–100.
+* No duplicate user/day combinations.
+* Referential integrity between gold and silver layers.
+* Consistent top performers across KPIs.
+
+---
+
+## 📊 Example Insights
+
+| KPI                          | Description                                             |
+| ---------------------------- | ------------------------------------------------------- |
+| **Engagement Score**         | Weighted measure of total user activity.                |
+| **Daily Activity Level**     | Categorizes users into Low, Medium, or High engagement. |
+| **Content Engagement Index** | Aggregates watch, rating, sentiment, and clicks.        |
+| **Popularity Rank**          | DENSE_RANK-based movie ranking by engagement weight.    |
+
+---
+
+## 🚀 How to Run
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/<your-username>/netflix-dwh.git
+   ```
+2. Open in **SSMS** or **Azure Data Studio**.
+3. Run:
+
+   ```sql
+   :r .\silver_full_load.sql
+   :r .\gold_ddl.sql
+   :r .\gold_validation.sql
+   ```
+
+   *(Ensure SQLCMD mode is enabled in SSMS.)*
+
+---
+
+## 📁 Repository Structure
+
+```
+/sql
+ ├── bronze/                   # Raw dataset import scripts
+ ├── silver/                   # Cleansing and type enforcement
+ ├── gold/
+ │    ├── gold_ddl.sql         # Analytical views
+ │    └── gold_validation.sql  # Validation script
+ └── utils/                    # Helper procedures, logs
+
+/docs
+ ├── data_model_diagram.png
+ ├── etl_flow.png
+ └── README.md
+
+README.md                     # This file
+```
+
+---
+
+## 🧾 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+**Project started:** October 2025
+**Last updated:** October 21, 2025
+**Author:** Kobi Asulin
+
+---
+

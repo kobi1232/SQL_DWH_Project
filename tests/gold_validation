@@ -1,0 +1,180 @@
+/*
+===============================================================================
+GOLD LAYER VALIDATION SCRIPT
+===============================================================================
+Author:       Kobi Asulin
+Environment:  Microsoft SQL Server (SSMS)
+Last Updated: 2025-10-21
+Purpose:
+    Validate the correctness, completeness, and analytical consistency 
+    of the gold layer views.
+
+Scope:
+    1. Basic health checks (row counts, nulls)
+    2. Statistical validation (min/max/avg of normalized metrics)
+    3. Top performer and anomaly spot checks
+    4. Referential integrity checks between gold views
+===============================================================================
+*/
+
+-------------------------------------------------------------------------------
+-- 1️⃣ BASIC HEALTH CHECKS
+-------------------------------------------------------------------------------
+PRINT('=== GOLD LAYER VALIDATION: BASIC HEALTH CHECKS ===');
+
+-- Row counts across all gold views
+SELECT 
+    'gold.user_profile' AS view_name, COUNT(*) AS total_rows 
+FROM gold.user_profile
+UNION ALL
+SELECT 'gold.user_engagement', COUNT(*) FROM gold.user_engagement
+UNION ALL
+SELECT 'gold.content_performance', COUNT(*) FROM gold.content_performance;
+
+-- Nulls and data completeness (key columns)
+SELECT 
+    'user_profile' AS view_name,
+    SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS null_user_id,
+    SUM(CASE WHEN engagement_score IS NULL THEN 1 ELSE 0 END) AS null_engagement_score
+FROM gold.user_profile
+UNION ALL
+SELECT 
+    'user_engagement',
+    SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN daily_engagement_score IS NULL THEN 1 ELSE 0 END)
+FROM gold.user_engagement
+UNION ALL
+SELECT 
+    'content_performance',
+    SUM(CASE WHEN movie_id IS NULL THEN 1 ELSE 0 END),
+    SUM(CASE WHEN content_engagement_index IS NULL THEN 1 ELSE 0 END)
+FROM gold.content_performance;
+
+-------------------------------------------------------------------------------
+-- 2️⃣ USER PROFILE VALIDATION
+-------------------------------------------------------------------------------
+PRINT('=== GOLD.USER_PROFILE VALIDATION ===');
+
+-- Distribution and normalization check
+SELECT 
+    COUNT(*) AS total_users,
+    ROUND(AVG(engagement_score), 2) AS avg_engagement,
+    MIN(engagement_score) AS min_engagement,
+    MAX(engagement_score) AS max_engagement
+FROM gold.user_profile;
+
+-- Top 10 engaged users
+SELECT TOP 10 
+    user_id,
+    first_name,
+    last_name,
+    country,
+    monthly_spend,
+    lifetime_searches,
+    total_reviews,
+    avg_rating,
+    total_watch_hours,
+    engagement_score
+FROM gold.user_profile
+ORDER BY engagement_score DESC;
+
+-- Country-level engagement insights
+SELECT 
+    country,
+    COUNT(*) AS total_users,
+    ROUND(AVG(engagement_score), 2) AS avg_engagement
+FROM gold.user_profile
+GROUP BY country
+ORDER BY avg_engagement DESC;
+
+-------------------------------------------------------------------------------
+-- 3️⃣ USER ENGAGEMENT (DAILY) VALIDATION
+-------------------------------------------------------------------------------
+PRINT('=== GOLD.USER_ENGAGEMENT VALIDATION ===');
+
+-- Engagement score range
+SELECT 
+    MIN(daily_engagement_score) AS min_score,
+    MAX(daily_engagement_score) AS max_score,
+    ROUND(AVG(daily_engagement_score), 2) AS avg_score
+FROM gold.user_engagement;
+
+-- Engagement distribution by category
+SELECT 
+    activity_level_category,
+    COUNT(*) AS total_days,
+    ROUND(AVG(daily_engagement_score), 2) AS avg_score
+FROM gold.user_engagement
+GROUP BY activity_level_category
+ORDER BY avg_score DESC;
+
+-- Top 10 most active users (by average daily engagement)
+SELECT TOP 10 
+    user_id,
+    ROUND(AVG(daily_engagement_score), 2) AS avg_daily_engagement,
+    COUNT(DISTINCT activity_date) AS active_days
+FROM gold.user_engagement
+GROUP BY user_id
+ORDER BY avg_daily_engagement DESC;
+
+-- Check for duplicate user/day pairs (should be 0)
+SELECT user_id, activity_date, COUNT(*) AS dup_count
+FROM gold.user_engagement
+GROUP BY user_id, activity_date
+HAVING COUNT(*) > 1;
+
+-------------------------------------------------------------------------------
+-- 4️⃣ CONTENT PERFORMANCE VALIDATION
+-------------------------------------------------------------------------------
+PRINT('=== GOLD.CONTENT_PERFORMANCE VALIDATION ===');
+
+-- Range and distribution
+SELECT 
+    COUNT(*) AS total_titles,
+    ROUND(AVG(content_engagement_index), 2) AS avg_engagement,
+    MIN(content_engagement_index) AS min_engagement,
+    MAX(content_engagement_index) AS max_engagement
+FROM gold.content_performance;
+
+-- Top 10 content by engagement
+SELECT TOP 10 
+    movie_id,
+    title,
+    genre_primary,
+    avg_rating,
+    avg_sentiment_score,
+    total_watch_hours,
+    content_engagement_index,
+    popularity_rank
+FROM gold.content_performance
+ORDER BY content_engagement_index DESC;
+
+-- Genre-level averages
+SELECT 
+    genre_primary,
+    COUNT(*) AS titles,
+    ROUND(AVG(content_engagement_index), 2) AS avg_index
+FROM gold.content_performance
+GROUP BY genre_primary
+ORDER BY avg_index DESC;
+
+-------------------------------------------------------------------------------
+-- 5️⃣ REFERENTIAL INTEGRITY CHECKS
+-------------------------------------------------------------------------------
+PRINT('=== REFERENTIAL INTEGRITY VALIDATION ===');
+
+-- Ensure all user_ids in engagement exist in profile
+SELECT COUNT(*) AS missing_users
+FROM gold.user_engagement e
+LEFT JOIN gold.user_profile p ON e.user_id = p.user_id
+WHERE p.user_id IS NULL;
+
+-- Ensure all movies in performance exist in silver movies table
+SELECT COUNT(*) AS missing_movies
+FROM gold.content_performance c
+LEFT JOIN silver.ntx_movies_info m ON c.movie_id = m.movie_id
+WHERE m.movie_id IS NULL;
+
+-------------------------------------------------------------------------------
+PRINT('✅ Gold Layer Validation Completed Successfully.');
+

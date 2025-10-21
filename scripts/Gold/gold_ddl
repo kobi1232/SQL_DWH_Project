@@ -1,0 +1,287 @@
+/*
+===============================================================================
+GOLD LAYER DDL SCRIPT
+===============================================================================
+Author:        Kobi Asulin
+Environment:   Microsoft SQL Server (SSMS)
+Last Updated:  2025-10-21
+Version:       1.2
+
+Purpose:
+    This script defines the **Gold Layer** — the analytical and presentation layer 
+    of the data warehouse — built upon the cleaned Silver Layer tables.
+
+Objectives:
+    - Create schema [gold] if not present.
+    - Define three analytical views used for dashboards, analytics, and ML models:
+        1. gold.user_profile        → User-level aggregated metrics
+        2. gold.user_engagement     → Daily user engagement timeline
+        3. gold.content_performance → Content performance and ranking metrics
+
+Design Principles:
+    - All aggregations are idempotent and derived from the Silver Layer.
+    - Uses weighted normalization for comparability across entities.
+    - Ensures robustness with COALESCE / NULLIF for safe division.
+    - All numeric KPIs rounded to two decimals for analytical clarity.
+===============================================================================
+*/
+
+-- 1️⃣ Create gold schema if missing
+IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'gold')
+    EXEC('CREATE SCHEMA gold');
+GO
+
+-------------------------------------------------------------------------------
+-- 2️⃣ USER PROFILE VIEW
+-------------------------------------------------------------------------------
+PRINT('Creating gold.user_profile...');
+GO
+
+CREATE OR ALTER VIEW gold.user_profile AS
+WITH
+-- 1 Aggregate total searches per user
+search_agg AS (
+    SELECT 
+        user_id,
+        COUNT(*) AS lifetime_searches
+    FROM silver.ntx_search_logs
+    GROUP BY user_id
+),
+
+-- 2 Aggregate total reviews and average rating per user
+review_agg AS (
+    SELECT 
+        user_id,
+        COUNT(DISTINCT review_id) AS total_reviews,
+        AVG(rating) AS avg_rating
+    FROM silver.ntx_reviews
+    GROUP BY user_id
+),
+
+-- 3 Aggregate total watch duration (in hours)
+watch_agg AS (
+    SELECT 
+        user_id,
+        ROUND(SUM(watch_duration_minutes) / 60.0, 2) AS total_watch_hours
+    FROM silver.ntx_watch_history
+    GROUP BY user_id
+),
+
+-- 4 Calculate global maximums for normalization
+global_max AS (
+    SELECT 
+        (SELECT MAX(lifetime_searches) FROM search_agg) AS max_searches,
+        (SELECT MAX(total_reviews) FROM review_agg) AS max_reviews,
+        (SELECT MAX(total_watch_hours) FROM watch_agg) AS max_watch_hours
+)
+
+-- 5 Final result with weighted normalized engagement
+SELECT 
+    u.user_id,
+    u.first_name,
+    u.last_name,
+    u.country,
+    u.primary_device,
+    u.monthly_spend,
+    u.subscription_start_date,
+    DATEDIFF(MONTH, u.subscription_start_date, GETDATE()) AS subscription_tenure_months,
+
+    COALESCE(s.lifetime_searches, 0) AS lifetime_searches,
+    COALESCE(r.total_reviews, 0) AS total_reviews,
+    COALESCE(r.avg_rating, 0) AS avg_rating,
+    COALESCE(w.total_watch_hours, 0) AS total_watch_hours,
+
+    ROUND(
+        (
+            (0.05 * COALESCE(s.lifetime_searches, 0) / NULLIF(g.max_searches, 0)) +
+            (0.2 * COALESCE(r.total_reviews, 0) / NULLIF(g.max_reviews, 0)) +
+            (0.05 * COALESCE(r.avg_rating, 0) / 5.0) +
+            (0.7 * COALESCE(w.total_watch_hours, 0) / NULLIF(g.max_watch_hours, 0))
+        ) * 100.0, 2
+    ) AS engagement_score
+
+FROM silver.ntx_users_info AS u
+LEFT JOIN search_agg AS s ON u.user_id = s.user_id
+LEFT JOIN review_agg AS r ON u.user_id = r.user_id
+LEFT JOIN watch_agg AS w ON u.user_id = w.user_id
+CROSS JOIN global_max AS g;
+GO
+
+-------------------------------------------------------------------------------
+-- 3️⃣ USER ENGAGEMENT VIEW (DAILY)
+-------------------------------------------------------------------------------
+PRINT('Creating gold.user_engagement...');
+GO
+
+CREATE OR ALTER VIEW gold.user_engagement AS
+WITH
+search_daily AS (
+    SELECT user_id, CAST(search_date AS DATE) AS activity_date, COUNT(*) AS daily_searches
+    FROM silver.ntx_search_logs
+    GROUP BY user_id, CAST(search_date AS DATE)
+),
+review_daily AS (
+    SELECT user_id, CAST(review_date AS DATE) AS activity_date, COUNT(*) AS daily_reviews
+    FROM silver.ntx_reviews
+    GROUP BY user_id, CAST(review_date AS DATE)
+),
+watch_daily AS (
+    SELECT user_id, CAST(watch_date AS DATE) AS activity_date, ROUND(SUM(watch_duration_minutes)/60.0,2) AS daily_watch_hours
+    FROM silver.ntx_watch_history
+    GROUP BY user_id, CAST(watch_date AS DATE)
+),
+recommend_daily AS (
+    SELECT user_id, CAST(recommendation_date AS DATE) AS activity_date, COUNT(CASE WHEN was_clicked = 1 THEN 1 END) AS daily_clicks
+    FROM silver.ntx_recommendation_logs
+    GROUP BY user_id, CAST(recommendation_date AS DATE)
+),
+all_dates AS (
+    SELECT DISTINCT user_id, activity_date FROM (
+        SELECT user_id, activity_date FROM search_daily
+        UNION ALL
+        SELECT user_id, activity_date FROM review_daily
+        UNION ALL
+        SELECT user_id, activity_date FROM watch_daily
+        UNION ALL
+        SELECT user_id, activity_date FROM recommend_daily
+    ) AS combined
+),
+global_max AS (
+    SELECT 
+        (SELECT MAX(daily_searches) FROM search_daily) AS max_daily_searches,
+        (SELECT MAX(daily_reviews) FROM review_daily) AS max_daily_reviews,
+        (SELECT MAX(daily_watch_hours) FROM watch_daily) AS max_daily_watch_hours,
+        (SELECT MAX(daily_clicks) FROM recommend_daily) AS max_daily_clicks
+)
+
+SELECT 
+    u.user_id,
+    a.activity_date,
+    u.country,
+    u.primary_device,
+    u.subscription_start_date,
+
+    COALESCE(s.daily_searches, 0) AS daily_searches,
+    COALESCE(r.daily_reviews, 0) AS daily_reviews,
+    COALESCE(w.daily_watch_hours, 0) AS daily_watch_hours,
+    COALESCE(rec.daily_clicks, 0) AS daily_clicks,
+
+    ROUND(
+        (
+            0.25 * COALESCE(s.daily_searches, 0) / NULLIF(g.max_daily_searches, 0) +
+            0.25 * COALESCE(r.daily_reviews, 0) / NULLIF(g.max_daily_reviews, 0) +
+            0.25 * COALESCE(w.daily_watch_hours, 0) / NULLIF(g.max_daily_watch_hours, 0) +
+            0.25 * COALESCE(rec.daily_clicks, 0) / NULLIF(g.max_daily_clicks, 0)
+        ) * 100.0, 2
+    ) AS daily_engagement_score,
+
+    CASE 
+        WHEN (
+            0.25 * COALESCE(s.daily_searches, 0) / NULLIF(g.max_daily_searches, 0) +
+            0.25 * COALESCE(r.daily_reviews, 0) / NULLIF(g.max_daily_reviews, 0) +
+            0.25 * COALESCE(w.daily_watch_hours, 0) / NULLIF(g.max_daily_watch_hours, 0) +
+            0.25 * COALESCE(rec.daily_clicks, 0) / NULLIF(g.max_daily_clicks, 0)
+        ) * 100.0 >= 80 THEN 'High'
+        WHEN (
+            0.25 * COALESCE(s.daily_searches, 0) / NULLIF(g.max_daily_searches, 0) +
+            0.25 * COALESCE(r.daily_reviews, 0) / NULLIF(g.max_daily_reviews, 0) +
+            0.25 * COALESCE(w.daily_watch_hours, 0) / NULLIF(g.max_daily_watch_hours, 0) +
+            0.25 * COALESCE(rec.daily_clicks, 0) / NULLIF(g.max_daily_clicks, 0)
+        ) * 100.0 >= 40 THEN 'Medium'
+        ELSE 'Low'
+    END AS activity_level_category,
+
+    DATENAME(WEEKDAY, a.activity_date) AS day_of_week
+
+FROM all_dates AS a
+JOIN silver.ntx_users_info AS u ON a.user_id = u.user_id
+LEFT JOIN search_daily AS s ON a.user_id = s.user_id AND a.activity_date = s.activity_date
+LEFT JOIN review_daily AS r ON a.user_id = r.user_id AND a.activity_date = r.activity_date
+LEFT JOIN watch_daily AS w ON a.user_id = w.user_id AND a.activity_date = w.activity_date
+LEFT JOIN recommend_daily AS rec ON a.user_id = rec.user_id AND a.activity_date = rec.activity_date
+CROSS JOIN global_max AS g;
+GO
+
+-------------------------------------------------------------------------------
+-- 4️⃣ CONTENT PERFORMANCE VIEW
+-------------------------------------------------------------------------------
+PRINT('Creating gold.content_performance...');
+GO
+
+CREATE OR ALTER VIEW gold.content_performance AS
+WITH
+review_agg AS (
+    SELECT 
+        movie_id,
+        COUNT(DISTINCT review_id) AS total_reviews,
+        AVG(rating) AS avg_rating,
+        ROUND(AVG(CAST(sentiment_score AS FLOAT)), 3) AS avg_sentiment_score
+    FROM silver.ntx_reviews
+    GROUP BY movie_id
+),
+watch_agg AS (
+    SELECT 
+        movie_id,
+        COUNT(*) AS total_views,
+        ROUND(SUM(watch_duration_minutes)/60.0, 2) AS total_watch_hours
+    FROM silver.ntx_watch_history
+    GROUP BY movie_id
+),
+rec_agg AS (
+    SELECT 
+        movie_id,
+        COUNT(CASE WHEN was_clicked = 1 THEN 1 END) AS total_clicks
+    FROM silver.ntx_recommendation_logs
+    GROUP BY movie_id
+),
+global_max AS (
+    SELECT 
+        (SELECT MAX(total_watch_hours) FROM watch_agg) AS max_watch_hours,
+        (SELECT MAX(avg_rating) FROM review_agg) AS max_rating,
+        (SELECT MAX(avg_sentiment_score) FROM review_agg) AS max_sentiment,
+        (SELECT MAX(total_clicks) FROM rec_agg) AS max_clicks
+)
+
+SELECT 
+    m.movie_id,
+    m.title,
+    m.genre_primary,
+    m.genre_secondary,
+    m.release_year,
+    m.content_type,
+    m.country_of_origin,
+    m.imdb_rating,
+
+    COALESCE(r.total_reviews, 0) AS total_reviews,
+    COALESCE(r.avg_rating, 0) AS avg_rating,
+    COALESCE(r.avg_sentiment_score, 0) AS avg_sentiment_score,
+    COALESCE(w.total_watch_hours, 0) AS total_watch_hours,
+    COALESCE(w.total_views, 0) AS total_views,
+    COALESCE(rec.total_clicks, 0) AS total_clicks,
+
+    ROUND(
+        (
+            (0.4 * COALESCE(w.total_watch_hours, 0) / NULLIF(g.max_watch_hours, 0)) +
+            (0.3 * COALESCE(r.avg_rating, 0) / NULLIF(g.max_rating, 0)) +
+            (0.2 * COALESCE(r.avg_sentiment_score, 0) / NULLIF(g.max_sentiment, 0)) +
+            (0.1 * COALESCE(rec.total_clicks, 0) / NULLIF(g.max_clicks, 0))
+        ) * 100.0, 2
+    ) AS content_engagement_index,
+
+    DENSE_RANK() OVER (
+        ORDER BY (
+            (0.4 * COALESCE(w.total_watch_hours, 0)) +
+            (0.3 * COALESCE(r.avg_rating, 0)) +
+            (0.2 * COALESCE(r.avg_sentiment_score, 0)) +
+            (0.1 * COALESCE(rec.total_clicks, 0))
+        ) DESC
+    ) AS popularity_rank
+
+FROM silver.ntx_movies_info AS m
+LEFT JOIN review_agg AS r ON m.movie_id = r.movie_id
+LEFT JOIN watch_agg AS w ON m.movie_id = w.movie_id
+LEFT JOIN rec_agg AS rec ON m.movie_id = rec.movie_id
+CROSS JOIN global_max AS g;
+GO
+
+PRINT('✅ Gold Layer deployment complete. All analytical views created successfully.');

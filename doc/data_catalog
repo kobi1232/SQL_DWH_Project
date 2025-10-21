@@ -1,0 +1,133 @@
+Perfect — a **Data Catalog** is exactly what your GitHub project needs now 🎯
+
+Here’s a complete **Gold Layer Data Catalog** written in the same style as your inspiration but adapted to your Netflix project.
+It’s ready to be added as a Markdown file (`/docs/data_catalog_gold.md`) or appended under a “📘 Data Catalog” section in your README.
+
+---
+
+# 📘 Data Catalog – Gold Layer
+
+## 🧭 Overview
+
+The **Gold Layer** represents the **business-ready analytical layer** of the Netflix User Behavior Data Warehouse.
+It provides aggregated, normalized, and enriched data to support **business intelligence**, **data science**, and **reporting use cases**.
+
+This layer consists of three main views:
+
+1. `gold.user_profile` – summarizes user-level engagement and attributes.
+2. `gold.user_engagement` – provides daily engagement tracking for behavioral analytics.
+3. `gold.content_performance` – aggregates content performance metrics for movies and shows.
+
+---
+
+## 1️⃣ gold.user_profile
+
+**Purpose:**
+Aggregates user-level behavioral and demographic information to build a holistic profile for engagement analysis, retention modeling, and customer segmentation.
+
+| Column Name                  | Data Type     | Description                                                |
+| ---------------------------- | ------------- | ---------------------------------------------------------- |
+| `user_id`                    | NVARCHAR(50)  | Unique identifier for each user.                           |
+| `first_name`                 | NVARCHAR(50)  | User’s first name.                                         |
+| `last_name`                  | NVARCHAR(50)  | User’s last name.                                          |
+| `country`                    | NVARCHAR(50)  | User’s country of registration or activity.                |
+| `primary_device`             | NVARCHAR(50)  | Main device used by the user (e.g., “Laptop”, “Smart TV”). |
+| `monthly_spend`              | DECIMAL(10,2) | Monthly subscription spend by the user in USD.             |
+| `subscription_start_date`    | DATE          | Date when the user subscribed to the service.              |
+| `subscription_tenure_months` | INT           | Number of months since subscription started (calculated).  |
+| `lifetime_searches`          | INT           | Total searches performed by the user.                      |
+| `total_reviews`              | INT           | Total number of reviews written by the user.               |
+| `avg_rating`                 | DECIMAL(4,2)  | Average rating given by the user across all reviews.       |
+| `total_watch_hours`          | DECIMAL(10,2) | Total hours watched (converted from minutes).              |
+| `engagement_score`           | DECIMAL(5,2)  | Weighted and normalized user engagement score (0–100).     |
+
+**Use Cases:**
+
+* Identify high-value users.
+* Analyze engagement by country and subscription type.
+* Feed into churn prediction and user segmentation models.
+
+---
+
+## 2️⃣ gold.user_engagement
+
+**Purpose:**
+Tracks **daily user activity** across multiple interaction types — searches, reviews, watches, and recommendations — providing a temporal view of engagement.
+
+| Column Name               | Data Type     | Description                                               |
+| ------------------------- | ------------- | --------------------------------------------------------- |
+| `user_id`                 | NVARCHAR(50)  | Unique user identifier.                                   |
+| `activity_date`           | DATE          | Date of activity.                                         |
+| `country`                 | NVARCHAR(50)  | User’s country of operation.                              |
+| `primary_device`          | NVARCHAR(50)  | User’s main access device.                                |
+| `subscription_start_date` | DATE          | Start date of subscription.                               |
+| `daily_searches`          | INT           | Number of searches performed on that day.                 |
+| `daily_reviews`           | INT           | Number of reviews submitted that day.                     |
+| `daily_watch_hours`       | DECIMAL(10,2) | Total watch duration in hours for that day.               |
+| `daily_clicks`            | INT           | Number of recommendation clicks recorded that day.        |
+| `daily_engagement_score`  | DECIMAL(5,2)  | Weighted normalized engagement score (0–100) for the day. |
+| `activity_level_category` | NVARCHAR(20)  | Categorized engagement level: `High`, `Medium`, or `Low`. |
+| `day_of_week`             | NVARCHAR(20)  | Day of the week (e.g., “Monday”).                         |
+
+**Use Cases:**
+
+* Monitor platform activity trends.
+* Detect behavioral seasonality or daily engagement peaks.
+* Feed into time-series forecasting models for active users.
+
+---
+
+## 3️⃣ gold.content_performance
+
+**Purpose:**
+Provides aggregated content-level metrics to measure popularity, engagement, and sentiment for movies and shows.
+
+| Column Name                | Data Type     | Description                                                       |
+| -------------------------- | ------------- | ----------------------------------------------------------------- |
+| `movie_id`                 | NVARCHAR(50)  | Unique identifier for each movie or show.                         |
+| `title`                    | NVARCHAR(255) | Name of the movie or show.                                        |
+| `genre_primary`            | NVARCHAR(50)  | Main genre classification (e.g., “Drama”, “Action”).              |
+| `genre_secondary`          | NVARCHAR(50)  | Secondary or sub-genre classification.                            |
+| `release_year`             | INT           | Year the content was released.                                    |
+| `content_type`             | NVARCHAR(50)  | Content format (e.g., “Movie”, “Series”).                         |
+| `country_of_origin`        | NVARCHAR(50)  | Origin country of the content.                                    |
+| `imdb_rating`              | DECIMAL(3,1)  | External IMDb rating (for validation/comparison).                 |
+| `total_reviews`            | INT           | Total reviews written by users for this content.                  |
+| `avg_rating`               | DECIMAL(4,2)  | Average user rating from internal reviews.                        |
+| `avg_sentiment_score`      | DECIMAL(5,3)  | Average sentiment score from review analysis.                     |
+| `total_watch_hours`        | DECIMAL(10,2) | Total number of hours users spent watching this content.          |
+| `total_views`              | INT           | Total number of watch sessions for this content.                  |
+| `total_clicks`             | INT           | Total number of recommendation clicks for this title.             |
+| `content_engagement_index` | DECIMAL(5,2)  | Weighted normalized engagement score (0–100).                     |
+| `popularity_rank`          | INT           | Rank of the content based on engagement index (1 = most popular). |
+
+**Use Cases:**
+
+* Rank top-performing content by engagement.
+* Correlate internal engagement vs. external ratings (IMDB).
+* Support recommendation model training and content strategy.
+
+---
+
+## 🧮 Normalization & Scoring Logic
+
+| Metric                        | Weight                                                     | Description                                       |
+| ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| **User Engagement (Profile)** | Search 0.05, Reviews 0.2, Rating 0.05, Watch Time 0.7      | Reflects long-term engagement per user.           |
+| **Daily Engagement**          | Searches 0.25, Reviews 0.25, Watch Hours 0.25, Clicks 0.25 | Balances daily user activities.                   |
+| **Content Engagement**        | Watch Time 0.4, Rating 0.3, Sentiment 0.2, Clicks 0.1      | Measures audience interaction quality and volume. |
+
+---
+
+## 🔍 Notes
+
+* All views use **CROSS JOIN global_max** or scalar subqueries for normalization.
+* All numeric outputs are **rounded to two decimal places**.
+* `COALESCE` and `NULLIF` are applied throughout to prevent division errors and ensure complete datasets.
+* The Gold Layer is **read-only** — updated automatically after Silver ETL completion.
+
+---
+
+Would you like me to now draft a **Silver Layer Data Catalog** in the same structured format (for completeness)?
+It would describe your six silver tables (`ntx_users_info`, `ntx_movies_info`, etc.) — great addition for a professional GitHub project.
+
